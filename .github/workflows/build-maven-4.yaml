@@ -1,0 +1,75 @@
+name: Build
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Maven 4
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        java:
+          - 17
+          - 21
+        maven:
+          - 4.0.0-beta-5
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: s4u/setup-maven-action@v1.18.0
+        with:
+            java-distribution: 'temurin'
+            java-version: ${{ matrix.java }}
+            maven-version: ${{ matrix.maven }}
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        env:
+            java_version: ${{ matrix.java }}
+        with:
+          path: ~/.m2/repository
+          key: mvn-cache-${{ runner.os }}-${{ env.java_version }}
+          restore-keys: mvn-cache-${{ runner.os }}-${{ env.java_version }}
+      - name: Install Graphviz (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt install graphviz
+      - name: Install Graphviz (Win)
+        if: matrix.os == 'windows-latest'
+        run: choco install graphviz --no-progress
+      - name: Install Graphviz (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install graphviz
+      - name: Environment
+        run: mvn -version
+      - name: Clean all modules
+        run: mvn -B clean
+      - name: Set MAVEN_HOME and Test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          set MAVEN_HOME="$(which mvn)"
+          echo "MAVEN_HOME: $MAVEN_HOME"
+          mvn -B test -pl tests
+      - name: Set MAVEN_HOME and Test
+        if: matrix.os != 'windows-latest'
+        run: |
+          export MAVEN_HOME="$(which mvn)"
+          echo "MAVEN_HOME: $MAVEN_HOME"
+          mvn -B test -pl tests
+      - name: Upload test output
+        uses: actions/upload-artifact@v4
+        env:
+            os_name: ${{ matrix.os }}
+            java_version: ${{ matrix.java }}
+            maven_version: ${{ matrix.maven }}
+        if: always()
+        with:
+            name: tests-output-${{ env.os_name }}-${{ env.java_version }}-${{ env.maven_version }}
+            path: tests/target/*
